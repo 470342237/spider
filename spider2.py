@@ -46,17 +46,9 @@ def readCommand( argv ):
 def webCrawler(url):
     headers = {'User-Agent':'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:23.0) Gecko/20100101 Firefox/23.0'}  
     try:
-        response = urllib2.urlopen(url, timeout=20)
-        if response.info().get('Content-Encoding') == 'gzip':
-            buf = StringIO(response.read())
-            f = gzip.GzipFile(fileobj=buf)
-            html_doc = f.read()
-        else:
-            html_doc = response.read()
-        
-        #request = urllib2.Request(url, headers = headers)
-        #response = urllib2.urlopen(request)
-        #html_doc = response.read()
+        request = urllib2.Request(url, headers = headers)
+        response = urllib2.urlopen(request)
+        html_doc = response.read()
     except UnicodeEncodeError, e:
         logging.error('UnicodeEncodeError in : ' + url)
     except urllib2.HTTPError, e:
