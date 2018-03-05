@@ -51,6 +51,7 @@ def webCrawler(url):
         request = urllib2.Request(url, headers = headers)
         response = urllib2.urlopen(request)
         html_doc = response.read()
+        logging.debug('successfully request this url.')
     except UnicodeEncodeError, e:
         logging.error('UnicodeEncodeError in : ' + url)
     except urllib2.HTTPError, e:
@@ -59,11 +60,11 @@ def webCrawler(url):
     except urllib2.URLError, e:
         logging.error('URLError %s in : %s' % (e.reason, url))
         return None
-    logging.info('successfully get the html info.')
     return html_doc
 
 def initDatabase(dbfile):
     with sqlite3.connect(dbfile) as conn:
+        logging.debug('successfully open database : ' + dbfile)
         c = conn.cursor()
         try:
             c.execute('''CREATE TABLE WEBSITE
@@ -74,26 +75,34 @@ def initDatabase(dbfile):
         except:
             logging.info("Fail to create table.")
         conn.commit()
+    global index
+    index = 0
     
 def insertDatabase(id, url, html_doc, dbfile):
+    global index
+    index = index + 1
+    logging.debug("Begin to insert Database")
     with sqlite3.connect(dbfile) as conn:
-        logging.debug("url_id : %d \nurl : %s \ncontent : %s" %(url_id, url, html_doc))
         c = conn.cursor()
         #try:
+        value = (index, url, html_doc)
         c.execute("INSERT OR IGNORE INTO WEBSITE(ID, URL, CONTENT) \
-        VALUES (1, '%s', '%s')" % (url, html_doc))
+        VALUES (?, ?, ?)" % value)
         conn.commit()
         logging.info("Succeed inserting table.")
         #except:
         #    logging.error("Fail to insert table, ")
     
 def search(url, deep, used_set, dbfile):
-    log = logging.getLogger("spider")
+    logging.debug("url : " + url)
+    logging.info('request this url.')   
     html_doc = webCrawler(url)    
     if html_doc is None:
         return 
+    logging.info('insert into database.')
     insertDatabase(len(used_set), url, html_doc, dbfile)
     
+    logging.info('resolve the html.')
     soup = BeautifulSoup(html_doc, "lxml")
     
     if deep==1:
@@ -102,10 +111,10 @@ def search(url, deep, used_set, dbfile):
     for link in soup.find_all(attrs={"href":re.compile(r'^http')}):
         if link.get('href') in used_set:
             continue
-        logging.debug('%d : %s' %(len(used_set), link.get('href')))
+        # logging.debug('%d : %s' %(len(used_set), link.get('href')))
         used_set.add(link.get('href'))
         current_set.add(link.get('href'))
-    logging.info("There're %d hrefs in current url; there're %d hrefs in total." % (len(current_set), len(used_set)))
+    logging.info("There're %d hrefs in current url" % len(current_set))
     for link in current_set:
         if link is None:
             continue
@@ -117,20 +126,21 @@ def spider(url, deep, logfile, loglevel, testflag, dbfile):
         import doctest
         doctest.testmod()
     FORMAT = "%(message)s"
-    logging.basicConfig(filename=logfile, level=loglevel, format=FORMAT)
+    logging.basicConfig(filename=logfile, filemode = 'w', level=loglevel, format=FORMAT)
     logging.info('log file is: %s, log level is: %d' %(logfile, loglevel))
+    logging.getLogger("chardet").setLevel(logging.WARNING)
     
-    logging.debug('the initial url is : ' + url)
+    logging.info('the initial url is : ' + url)
     
     # 记录已经访问的 url
-    logging.debug('create used_set')
+    logging.info('create used_set')
     used_set = Set()
     used_set.add(url)
     
-    logging.debug('init Database')
+    logging.info('init Database')
     conn = initDatabase(dbfile)
     
-    logging.debug('begin search of deep: %d' % deep)
+    logging.info('begin search of deep: %d' % deep)
     search(url, deep, used_set, dbfile)
     logging.info("search ended. There're %d hrefs in total" % len(used_set))
     
