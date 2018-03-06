@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding:utf-8 -*-
+
 import os
 import sys
 import time
@@ -18,21 +19,21 @@ def readCommand( argv ):
     """
     parser = OptionParser()
     parser.add_option("-u", dest="url", 
-                        help=u"爬虫开始地址")
+                        help="爬虫开始地址")
     parser.add_option("-d", type="int", dest="depth", default=2, 
-                        help=u"爬虫深度，默认 2 层")
+                        help="爬虫深度，默认 2 层")
     parser.add_option("-f", dest="logfile", default="spider.log", 
-                        help=u"日志文件名")
-    parser.add_option("-l", dest="loglevel", default=4, 
-                        help=u"日志文件记录详细程度(1-5)，数字越大越详细", metavar="1-5")
+                        help="日志文件名")
+    parser.add_option("-l", type="int", dest="loglevel", default=5, 
+                        help="日志文件记录详细程度(1-5)，数字越大越详细", metavar="1-5")
     parser.add_option("--testself", action="store_true", dest="testflag", default=False, 
-                        help=u"启动自测")
+                        help="启动自测")
     parser.add_option("--thread", type="int", dest="threadnumber", default=10, 
-                       help=u"线程池大小，默认10个线程", metavar="THREAD_NUMBER")
+                       help="线程池大小，默认10个线程", metavar="THREAD_NUMBER")
     parser.add_option("--dbfile", dest="dbfile", default="spider.db", 
-                        help=u"数据库文件名", metavar="DATABASE_FILE")
+                        help="数据库文件名", metavar="DATABASE_FILE")
     parser.add_option("--key", dest="key", default=None, 
-                       help=u"设定关键词，仅获取包含关键词的网页", metavar="KEYWORDS")
+                       help="设定关键词，仅获取包含关键词的网页", metavar="KEYWORDS")
     (options, otherargs) = parser.parse_args()
     
     args = dict()
@@ -50,6 +51,7 @@ def readCommand( argv ):
 class Spider(object):
     def __init__(self, **args):
         logging.debug('__Spider.__init____')
+        self.index = 0
         self.init_url = args['url']
         self.depth = args['depth']
         self.key = args['key']
@@ -58,22 +60,32 @@ class Spider(object):
         self.key = args['key']
         self.q = Queue()
         self.used_set = set()
-          
+        logging.debug("init url: %s, depth: %s" % (self.init_url, self.depth))
+        
     def handleInitUrl(self):
-        logging.debug('__Spider.handleInitUrl__ : '+self.init_url)
-        logging.info('init Database')
+        logging.debug('__Spider.handleInitUrl__ : ' + self.init_url)
+        logging.debug('init Database')
         self.initDatabase(dbfile = self.dbfile)
 
         self.used_set.add(self.init_url)
         self.q.put((self.init_url, 0))
         
-        self.handling(url=self.init_url, depth=0)
+        self.printProcess()
         
+        threads = []
         for i in range(self.threadnumber):
             t = threading.Thread(target=self.run)
             t.start()
+            threads.append(t)
         
         self.q.join()
+        
+        for i in range(self.threadnumber):
+            self.q.put(None)
+        for t in threads:
+            t.join()
+        
+        print("已爬取 %s 个urls, 当前队列中尚有 0 个 urls 等待爬取" % self.index) 
         
     def initDatabase(self, dbfile):
         logging.debug('__Spider.initDatabase__')
@@ -82,9 +94,9 @@ class Spider(object):
             c = conn.cursor()
             try:
                 c.execute('''CREATE TABLE WEBSITE
-                        (URL     TEXT    PRIMARY KEY     NOT NULL,
-                        CONTENT TEXT);''')
-                logging.info("Succeed creating table.")
+                        (URL        TEXT    PRIMARY KEY     NOT NULL,
+                        CONTENT     TEXT);''')
+                logging.debug("Succeed creating table.")
             except Exception as e:
                 logging.error("Fail to create table : " + str(e))
             conn.commit()      
@@ -100,54 +112,81 @@ class Spider(object):
                 VALUES (?, ?)", value)
                 conn.commit()
                 logging.debug("Succeed inserting table. ")
+            except sqlite3.IntegrityError:
+                c.execute("REPLACE INTO WEBSITE(URL, CONTENT) \
+                VALUES (?, ?)", value)
+                conn.commit()
+                logging.info("Replace the duplicate key into table. ")
             except Exception as e:
-                logging.warning("Fail to insert table. " + str(e))
+                logging.error("Fail to insert table. " + str(e))
         
     def webCrawler(self, url):
         logging.debug('__Spider.webCrawler__')
-        logging.info('url : ' + url)
+        logging.info('url : %s ' % url)
         try:
-            response = request.urlopen(url)
+            response = request.urlopen(url, timeout=20)
             html_doc = response.read()
             logging.debug('successfully request this url.')
         except Exception as e:
-            logging.error('fail to request this url.' + str(e))
+            logging.error('fail to request this url, ' + str(e))
             return None
         
         return html_doc
         
     def run(self):
         while True:
-            url, depth = self.q.get()
+            item = self.q.get()
+            if item is None:
+                break
+            url, depth = item
             self.handling(url, depth)
+            logging.debug("task done. url : %s", url)
             self.q.task_done()
                 
     def handling(self, url, depth):
-        logging.info("request url, depth = " + str(depth))
+        logging.debug("request url, depth = " + str(depth))
         html_doc = self.webCrawler(url)
         
         if html_doc is None:
             return
         
-        logging.info('resolve the html.')
+        logging.debug('resolve the html.')
         soup = BeautifulSoup(html_doc.decode('utf-8', 'ignore'), "lxml")
         
         if ((self.key is None) or
             ((self.key is not None) and (soup.find_all(text=key)))):
-            logging.info("insert into database")
+            logging.debug("insert into database")
             self.insertDatabase(url=url, content=html_doc)
         
-        if depth == self.depth:
+        self.index = self.index + 1
+        
+        if depth >= self.depth:
             return
         
-        logging.debug('get the urls from href attributes.')
+        logging.debug('get urls with href attributes.')
         for link in soup.find_all(href=re.compile(r'^http')):
             if link.get('href') in self.used_set:
+                logging.info('deplicate urls.')
                 continue
-            self.used_set.add(link.get('href'))
-            self.q.put((link.get('href'), depth+1))
+            self.used_set.add(link.get('href').strip())
+            self.q.put((link.get('href').strip(), depth+1))
+            
+    def printProcess(self):
+        if self.depth ==0:
+            return
+        global t
+        t = threading.Timer(0, self.printInfo)
+        t.start()
         
-
+    def printInfo(self):
+        print("已爬取 %s 个urls, 当前队列中尚有 %s 个 urls 等待爬取" % (self.index, self.q.qsize())) 
+        if self.q.empty():
+            return
+        else:
+            global t
+            t = threading.Timer(10, self.printInfo)
+            t.start()
+    
 if __name__ == "__main__":
     """
     从命令行调用 spider.py
@@ -160,8 +199,9 @@ if __name__ == "__main__":
     """
     args = readCommand( sys.argv[1:] )
     
-    loglevel = -10*args["loglevel"] + 60
-    logging.basicConfig(filename=args["logfile"], filemode = 'w', level=args["loglevel"])
+    # change 1,2,3,4,5 to 50,40,30,20,10
+    loglevel = -10 * args["loglevel"] + 60
+    logging.basicConfig(filename=args["logfile"], filemode = 'w', level=loglevel)
     logging.debug('log file is: %s, log level is: %d' %(args["logfile"], args["loglevel"]))
     
     if args["testflag"]:
