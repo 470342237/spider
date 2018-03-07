@@ -36,6 +36,9 @@ def readCommand( argv ):
                        help="设定关键词，仅获取包含关键词的网页", metavar="KEYWORDS")
     (options, otherargs) = parser.parse_args()
     
+    if not options.url.startswith("http"):
+        options.url = "http://" + options.url
+
     args = dict()
     args['url'] = options.url
     args['depth'] = options.depth
@@ -52,6 +55,7 @@ class Spider(object):
     def __init__(self, **args):
         logging.debug('__Spider.__init____')
         self.index = 0
+        self.process = 0
         self.init_url = args['url']
         self.depth = args['depth']
         self.key = args['key']
@@ -68,9 +72,10 @@ class Spider(object):
         self.initDatabase(dbfile = self.dbfile)
 
         self.used_set.add(self.init_url)
-        self.q.put((self.init_url, 0))
+        self.q.put((self.init_url, 1))
         
-        self.printProcess()
+        if self.depth > 1:
+            self.printProcess()
         
         threads = []
         for i in range(self.threadnumber):
@@ -85,7 +90,7 @@ class Spider(object):
         for t in threads:
             t.join()
         
-        print("已爬取 %s 个urls, 当前队列中尚有 0 个 urls 等待爬取" % self.index) 
+        print("已爬取 %s 个urls, 当前线程池中尚有 0 个 urls 等待爬取" % self.index)
         
     def initDatabase(self, dbfile):
         logging.debug('__Spider.initDatabase__')
@@ -124,7 +129,7 @@ class Spider(object):
         logging.debug('__Spider.webCrawler__')
         logging.info('url : %s ' % url)
         try:
-            response = request.urlopen(url, timeout=20)
+            response = request.urlopen(url, timeout=10)
             html_doc = response.read()
             logging.debug('successfully request this url.')
         except Exception as e:
@@ -136,12 +141,14 @@ class Spider(object):
     def run(self):
         while True:
             item = self.q.get()
+            self.process = self.process + 1
             if item is None:
                 break
             url, depth = item
             self.handling(url, depth)
             logging.debug("task done. url : %s", url)
-            self.q.task_done()
+            self.process = self.process - 1
+            self.q.task_done() 
                 
     def handling(self, url, depth):
         logging.debug("request url, depth = " + str(depth))
@@ -172,20 +179,17 @@ class Spider(object):
             self.q.put((link.get('href').strip(), depth+1))
             
     def printProcess(self):
-        if self.depth ==0:
-            return
         global t
-        t = threading.Timer(0, self.printInfo)
+        t = threading.Timer(1, self.printInfo)
+        t.daemon = True
         t.start()
         
     def printInfo(self):
-        print("已爬取 %s 个urls, 当前队列中尚有 %s 个 urls 等待爬取" % (self.index, self.q.qsize())) 
-        if self.q.empty():
-            return
-        else:
-            global t
-            t = threading.Timer(10, self.printInfo)
-            t.start()
+        print("已爬取 %s 个urls, 当前线程池中尚有 %s 个 urls 等待爬取" % (self.index, self.process)) 
+
+        global t
+        t = threading.Timer(10, self.printInfo)
+        t.start()
     
 if __name__ == "__main__":
     """
