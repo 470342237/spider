@@ -16,6 +16,30 @@ from queue import Queue
 def readCommand( argv ):
     """
     解析命令行参数
+
+    >>> isinstance(readCommand(["-u", "http://www.sina.com.cn"]), dict)
+    True
+
+    >>> readCommand(["-u", "http://www.sina.com.cn"])['url']
+    'http://www.sina.com.cn'
+
+    >>> readCommand(["-u", "www.sina.com.cn", "-d", "1"])['depth']
+    1
+
+    >>> readCommand(["-u", "www.sina.com.cn", "-f", "test.log"])['logfile']
+    'test.log'
+
+    >>> readCommand(["-u", "www.sina.com.cn", "-l", "1"])['loglevel']
+    1
+    
+    >>> readCommand(["-u", "www.sina.com.cn", "--thread", "5"])['threadnumber']
+    5
+
+    >>> readCommand(["-u", "www.sina.com.cn", "--dbfile=test.db"])['dbfile']
+    'test.db'
+
+    >>> readCommand(["-u", "www.sina.com.cn", "--key=html"])['key']
+    'html'
     """
     parser = OptionParser()
     parser.add_option("-u", dest="url", 
@@ -34,10 +58,7 @@ def readCommand( argv ):
                         help="数据库文件名", metavar="DATABASE_FILE")
     parser.add_option("--key", dest="key", default=None, 
                        help="设定关键词，仅获取包含关键词的网页", metavar="KEYWORDS")
-    (options, otherargs) = parser.parse_args()
-    
-    if not options.url.startswith("http"):
-        options.url = "http://" + options.url
+    (options, otherargs) = parser.parse_args(argv)
 
     args = dict()
     args['url'] = options.url
@@ -52,6 +73,11 @@ def readCommand( argv ):
     return args
 
 class Spider(object):
+    """
+
+    初始化实例
+
+    """
     def __init__(self, **args):
         logging.debug('__Spider.__init____')
         self.index = 0
@@ -61,11 +87,17 @@ class Spider(object):
         self.key = args['key']
         self.dbfile = args['dbfile']
         self.threadnumber = args['threadnumber']
-        self.key = args['key']
         self.q = Queue()
         self.used_set = set()
         logging.debug("init url: %s, depth: %s" % (self.init_url, self.depth))
         
+    """
+
+    处理初始界面
+
+    包括将初始界面放入队列，创建线程，等待线程结束
+
+    """
     def handleInitUrl(self):
         logging.debug('__Spider.handleInitUrl__ : ' + self.init_url)
         logging.debug('init Database')
@@ -90,8 +122,16 @@ class Spider(object):
         for t in threads:
             t.join()
         
+        # 所有线程结束后输出信息
         print("已爬取 %s 个urls, 当前线程池中尚有 0 个 urls 等待爬取" % self.index)
-        
+    
+    """
+
+    初始化数据库
+
+    如果数据库已存在则 logging error
+
+    """
     def initDatabase(self, dbfile):
         logging.debug('__Spider.initDatabase__')
         with sqlite3.connect(self.dbfile) as conn:
@@ -105,7 +145,13 @@ class Spider(object):
             except Exception as e:
                 logging.error("Fail to create table : " + str(e))
             conn.commit()      
-        
+    
+    """
+
+    将数据插入数据库，主关键字重复时更新数据库
+
+    """
+
     def insertDatabase(self, url, content):
         logging.debug('__Spider.insertDatabase__')
         with sqlite3.connect(self.dbfile) as conn:
@@ -124,7 +170,11 @@ class Spider(object):
                 logging.info("Replace the duplicate key into table. ")
             except Exception as e:
                 logging.error("Fail to insert table. " + str(e))
-        
+    """
+
+    爬取 url 界面，返回界面信息
+
+    """
     def webCrawler(self, url):
         logging.debug('__Spider.webCrawler__')
         logging.info('url : %s ' % url)
@@ -137,7 +187,12 @@ class Spider(object):
             return None
         
         return html_doc
-        
+    
+    """
+
+    线程开始运行，process 用于记录正在运行的线程数，结束时执行 task_done()
+    
+    """
     def run(self):
         while True:
             item = self.q.get()
@@ -149,7 +204,13 @@ class Spider(object):
             logging.debug("task done. url : %s", url)
             self.process = self.process - 1
             self.q.task_done() 
-                
+    
+    """
+
+    url 处理函数，调用 webCrawler 爬取 url，对内容进行解析，插入数据库
+    并将内容中的超链接放入队列等待爬取
+
+    """
     def handling(self, url, depth):
         logging.debug("request url, depth = " + str(depth))
         html_doc = self.webCrawler(url)
@@ -177,7 +238,13 @@ class Spider(object):
                 continue
             self.used_set.add(link.get('href').strip())
             self.q.put((link.get('href').strip(), depth+1))
-            
+    
+    """
+
+    printProcess() 用于再屏幕上输出爬取进度，
+    printProcess() 1秒后显示，然后循环调用 printInfo() 每隔十秒显示一次
+
+    """
     def printProcess(self):
         global t
         t = threading.Timer(1, self.printInfo)
@@ -190,7 +257,12 @@ class Spider(object):
         global t
         t = threading.Timer(10, self.printInfo)
         t.start()
-    
+
+"""
+
+主函数
+
+"""
 if __name__ == "__main__":
     """
     从命令行调用 spider.py
@@ -203,14 +275,21 @@ if __name__ == "__main__":
     """
     args = readCommand( sys.argv[1:] )
     
+    if args['testflag']:
+        import doctest
+        doctest.testmod(verbose=True)
+        exit()
+
     # change 1,2,3,4,5 to 50,40,30,20,10
     loglevel = -10 * args["loglevel"] + 60
     logging.basicConfig(filename=args["logfile"], filemode = 'w', level=loglevel)
     logging.debug('log file is: %s, log level is: %d' %(args["logfile"], args["loglevel"]))
     
-    if args["testflag"]:
-        import doctest
-        doctest.testmod()
-    
+    if args["url"]:
+        if not args["url"].startswith("http"):
+            args["url"] = "http://" + args["url"]
+    else:
+        raise ValueError("Please input the url.")
+
     spider = Spider(**args)
     spider.handleInitUrl()
