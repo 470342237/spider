@@ -1,9 +1,9 @@
 # spider
-使用 Python 编写一个网站爬虫程序，来自知道创宇信息技术有限公司的面试题
+使用 Python 编写的一个网站爬虫程序，来自知道创宇信息技术有限公司的面试题
 
-支持参数如下：
+使用方法如下：
 ```
-spider.py -u url -d deep -f logfile -l loglevel(1-5)  --testself -thread number --dbfile  filepath  --key=”HTML5”
+python spider.py -u url -d deep -f logfile -l loglevel(1-5)  --testself -thread number --dbfile=filepath  --key="HTML5"
 ```
 
 #### 参数说明：
