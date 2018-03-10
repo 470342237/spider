@@ -1,4 +1,6 @@
 *.db
+*.db-journal
+
 *.log
 *.pyc
 *.zip
